@@ -1,5 +1,7 @@
 # claude-handoff
 
+[![test](https://github.com/zyeri/claude-handoff/actions/workflows/test.yml/badge.svg)](https://github.com/zyeri/claude-handoff/actions/workflows/test.yml)
+
 A Claude Code skill for writing, resuming, and showing self-contained **handoff docs** — so any session (yours later, a teammate, or a fresh agent) can pick up work with zero prior context.
 
 ## What it does
@@ -16,7 +18,16 @@ Natural-language phrasing routes the same way; see the routing table in `skills/
 
 ## Install
 
-Symlink (or copy) the skill into your Claude Code skills directory:
+This repo is a Claude Code **plugin** (manifest at `.claude-plugin/plugin.json`); the skill is auto-discovered from `skills/handoff/`.
+
+**As a plugin** — add this repo as a plugin marketplace, then install `claude-handoff`:
+
+```
+/plugin marketplace add zyeri/claude-handoff
+/plugin install claude-handoff@claude-handoff
+```
+
+**Or just the skill** — copy (or symlink) the skill directory into your skills path:
 
 ```
 # copy

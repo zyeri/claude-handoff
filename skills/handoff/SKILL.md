@@ -73,7 +73,7 @@ Tune detail to who reads it (ask if unclear):
 # Handoff — <project/task name>
 
 <!-- Reader starts here: where am I, what do I run -->
-- **When:** <YYYY-MM-DD HH:MM> · **Author:** <name/agent>
+- **When:** <YYYY-MM-DD HH:MM> · **Author:** <name/agent> · **Format:** handoff/1
 - **Branch:** `<branch>` · **Last commit:** `<hash> <subject>`
 - **Run everything from:** `<repo root, e.g. the dir containing .git>` — every command and path below is relative to here.
 - **Resume with:** `<the one command to get going>`
@@ -119,6 +119,7 @@ The one command that proves nothing is broken, and its expected result:
 - `Verification` is required and gets its own section — the highest-value line in the doc. Never record a verify command you haven't run.
 - Pad every table so the pipes align in the raw source (table alignment, not just column alignment) — the `Key files` table above shows the target.
 - **Never write secret-shaped strings** into the doc — API keys, tokens, passwords, `.env` values, connection strings. Reference them by name ("`POSTMARK_TOKEN` — ask team lead"). Handoffs get shared, committed, and gisted.
+- **Format stamp.** The header carries `Format: handoff/1`. This integer versions the *document layout*, not the plugin release. Stamp the current value verbatim. Bump it (and record the change in `CHANGELOG.md`) ONLY when you change the HANDOFF.md structure — rename/add/remove a section or header field. The number lives here, next to the template it stamps, so the two cannot drift.
 
 ---
 
@@ -127,14 +128,15 @@ The one command that proves nothing is broken, and its expected result:
 ## Steps
 
 1. **Find and read the handoff.** Read `HANDOFF.md` in the working directory. If it's missing, list any `*-HANDOFF.md` archives (date-first, so the last one alphabetically is newest) and ask which to use.
-2. **Check staleness first.** Compare the handoff's `When:` timestamp and `Last commit` hash against `git log --oneline -5`. If commits landed after the handoff was written, warn loudly — the doc describes a *past* state and its Completed/Remaining lists may be wrong. Report how many commits diverged before doing anything else.
-3. **Restore the branch.** From the header's `Branch:` line: if already on it, skip. Otherwise check `git status --short` first — a dirty tree makes `git checkout` fail or silently no-op. If dirty, stop and tell the reader to commit/stash before switching; don't assume the switch happened. Report if the branch is missing or diverged from the `Last commit` hash.
-4. **Run the verification command.** Execute the `Verification` section's command from the stated base dir. Report pass/fail against its expected result — the fastest proof the work is in the state the handoff claims.
-5. **Restate status.** Summarize back to the reader:
+2. **Check the format stamp.** Read the header's `Format: handoff/N`. This skill writes `handoff/1`. If the line is **absent**, treat the doc as `handoff/1` (pre-versioning) and proceed. If `N` is **higher** than 1, warn that the doc was written by a newer handoff format and some fields may have moved — parse defensively rather than trusting positions.
+3. **Check staleness.** Compare the handoff's `When:` timestamp and `Last commit` hash against `git log --oneline -5`. If commits landed after the handoff was written, warn loudly — the doc describes a *past* state and its Completed/Remaining lists may be wrong. Report how many commits diverged before doing anything else.
+4. **Restore the branch.** From the header's `Branch:` line: if already on it, skip. Otherwise check `git status --short` first — a dirty tree makes `git checkout` fail or silently no-op. If dirty, stop and tell the reader to commit/stash before switching; don't assume the switch happened. Report if the branch is missing or diverged from the `Last commit` hash.
+5. **Run the verification command.** Execute the `Verification` section's command from the stated base dir. Report pass/fail against its expected result — the fastest proof the work is in the state the handoff claims.
+6. **Restate status.** Summarize back to the reader:
    - What's done (from `Completed`).
    - The remaining tasks, with the **first one's first concrete action** called out as the next move; lead with `(clear)` items, flag `(blocked)` ones.
    - Anything from `Watch out` that affects the next step.
-6. **Flag drift.** If repo reality contradicts the handoff (branch gone, verification fails, files named don't exist), say so plainly instead of proceeding — a stale handoff is worse than none.
+7. **Flag drift.** If repo reality contradicts the handoff (branch gone, verification fails, files named don't exist), say so plainly instead of proceeding — a stale handoff is worse than none.
 
 ## Rules
 

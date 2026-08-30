@@ -10,14 +10,18 @@ Two layers:
   B. Skill text — SKILL.md still contains the instructions those mechanics enforce,
      so deleting a step from the doc fails the test (guards the skill, not just git).
 """
-import subprocess, sys, tempfile, shutil
+import subprocess, sys, tempfile, shutil, time
 from pathlib import Path
 
 SKILL = Path(__file__).resolve().parent.parent / "SKILL.md"
+VERBOSE = "-v" in sys.argv or "--verbose" in sys.argv
+SLOW_BUDGET_S = 3.0   # soft warn past this; not a failure (slow machines vary)
 passed = 0
 
 def ok(msg):
-    global passed; passed += 1; print(f"  ok: {msg}")
+    global passed; passed += 1
+    if VERBOSE:
+        print(f"  ok: {msg}")
 
 def fail(msg):
     print(f"FAIL: {msg}", file=sys.stderr); sys.exit(1)
@@ -106,6 +110,9 @@ def test_skill_text():
         "clean-tree resumes":   "**clean** working tree",
         "dirty-tree asks":      "write a new one covering your current changes",
         "date-relative resume": "yesterday's",
+        "format stamp template":"**Format:** handoff/1",
+        "format check in resume":"Check the format stamp",
+        "format bump rule":     "record the change in `CHANGELOG.md`",
     }
     for label, needle in required.items():
         if needle not in text:
@@ -141,7 +148,7 @@ def test_halves_in_sync():
 # the three things it must: base dir, branch, and a runnable verify command.
 SAMPLE = """# Handoff — sample
 
-- **When:** 2026-08-30 14:30 · **Author:** test
+- **When:** 2026-08-30 14:30 · **Author:** test · **Format:** handoff/1
 - **Branch:** `main` · **Last commit:** `abc1234 seed`
 - **Run everything from:** `.` — every command and path below is relative to here.
 - **Resume with:** `python -c "import calc"`
@@ -176,6 +183,15 @@ def test_resumable_contract():
     if branch != "main":
         fail(f"resumer can't extract branch (got {branch!r})")
     ok("resumable: branch extractable")
+    # format stamp: resumer parses 'Format: handoff/N' from the header
+    fmt = None
+    for line in SAMPLE.splitlines():
+        if "Format:" in line:
+            fmt = line.split("Format:**")[1].strip().split()[0]
+            break
+    if fmt != "handoff/1":
+        fail(f"resumer can't extract format stamp (got {fmt!r})")
+    ok("resumable: format stamp extractable (handoff/1)")
     # verify command lives in the fenced block after '## Verification'
     after = SAMPLE.split("## Verification", 1)[1]
     cmd = after.split("```", 2)[1].strip().splitlines()[0].split("#")[0].strip()
@@ -248,21 +264,35 @@ def test_routing_correctness():
         ok(f"routes correctly: {phrase!r} -> {want}")
 
 # ----- Layer G: date-relative archive selection (#4) -----
+# Drives off REAL files in a temp dir: create archives, glob them the way a resumer
+# does, and resolve relative references. Tests the mechanism, not a hand-picked list.
 def test_date_relative_pick():
-    archives = ["2026-08-28-0900-HANDOFF.md",
-                "2026-08-29-1400-HANDOFF.md",
-                "2026-08-30-1030-HANDOFF.md"]
-    today = "2026-08-30"
-    # "yesterday's / previous": newest archive strictly before today
-    prev = sorted(a for a in archives if not a.startswith(today))[-1]
-    if prev != "2026-08-29-1400-HANDOFF.md":
-        fail(f"date-relative 'previous' pick wrong (got {prev})")
-    ok("date-relative: 'previous' resolves to newest before today")
-    # a specific date prefix
-    match = [a for a in archives if a.startswith("2026-08-28")]
-    if match != ["2026-08-28-0900-HANDOFF.md"]:
-        fail("date-relative date-prefix match wrong")
-    ok("date-relative: date prefix resolves exactly")
+    work = Path(tempfile.mkdtemp())
+    try:
+        for n in ("2026-08-28-0900-HANDOFF.md",
+                  "2026-08-29-1400-HANDOFF.md",
+                  "2026-08-30-1030-HANDOFF.md"):
+            (work / n).write_text("")
+        (work / "HANDOFF.md").write_text("")          # live doc, not an archive
+        (work / "notes.md").write_text("")            # unrelated, must be ignored
+        # glob exactly as the skill says: '*-HANDOFF.md', date-first sort
+        archives = sorted(p.name for p in work.glob("*-HANDOFF.md"))
+        if archives != ["2026-08-28-0900-HANDOFF.md",
+                        "2026-08-29-1400-HANDOFF.md",
+                        "2026-08-30-1030-HANDOFF.md"]:
+            fail(f"archive glob picked wrong set: {archives}")
+        ok("date-relative: glob selects only real *-HANDOFF.md archives")
+        today = "2026-08-30"
+        prev = sorted(a for a in archives if not a.startswith(today))[-1]
+        if prev != "2026-08-29-1400-HANDOFF.md":
+            fail(f"'previous' pick wrong (got {prev})")
+        ok("date-relative: 'previous' resolves to newest before today")
+        match = [a for a in archives if a.startswith("2026-08-28")]
+        if match != ["2026-08-28-0900-HANDOFF.md"]:
+            fail("date-prefix match wrong")
+        ok("date-relative: date prefix resolves exactly")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 # ----- Layer H: resume half surfaces staleness end-to-end (#5) -----
 # Parse a handoff's recorded 'Last commit' hash, advance the repo, and confirm
@@ -296,6 +326,7 @@ def test_resume_staleness_e2e():
 if __name__ == "__main__":
     if not shutil.which("git"):
         fail("git not on PATH")
+    t0 = time.perf_counter()
     test_mechanics()
     test_skill_text()
     test_halves_in_sync()
@@ -305,4 +336,9 @@ if __name__ == "__main__":
     test_routing_correctness()
     test_date_relative_pick()
     test_resume_staleness_e2e()
-    print(f"ALL PASS ({passed} checks)")
+    elapsed = time.perf_counter() - t0
+    print(f"ALL PASS ({passed} checks, {elapsed:.2f}s)"
+          + ("   [run with -v for per-check output]" if not VERBOSE else ""))
+    if elapsed > SLOW_BUDGET_S:
+        print(f"WARN: fixture took {elapsed:.2f}s (> {SLOW_BUDGET_S:.0f}s budget) "
+              "- consider trimming subprocess-heavy layers", file=sys.stderr)
