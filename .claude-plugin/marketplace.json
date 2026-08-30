@@ -1,7 +1,7 @@
 {
   "name": "claude-handoff",
   "owner": {
-    "name": "zyeri"
+    "name": "Alex Schmidt (zyeri)"
   },
   "metadata": {
     "description": "Self-contained session handoff docs for Claude Code - write, resume, and show HANDOFF.md.",

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Write, resume, and show self-contained handoff docs so any session (you later, a teammate, or a fresh agent) can pick up work with zero prior context.",
   "author": {
-    "name": "zyeri"
+    "name": "Alex Schmidt (zyeri)"
   },
   "homepage": "https://github.com/zyeri/claude-handoff",
   "repository": "https://github.com/zyeri/claude-handoff",
