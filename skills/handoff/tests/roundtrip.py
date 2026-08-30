@@ -263,6 +263,35 @@ def test_routing_correctness():
             fail(f"routing: {phrase!r} -> {got!r}, expected {want!r}")
         ok(f"routes correctly: {phrase!r} -> {want}")
 
+# ----- Layer J: plugin slash-command dispatches to the skill (when present) -----
+# Only meaningful in the full plugin checkout (repo-root/commands/handoff.md).
+# On a skill-only install that path won't exist, so skip rather than fail.
+def test_command_file():
+    cmd = SKILL.parents[2] / "commands" / "handoff.md"
+    if not cmd.exists():
+        ok("command file check skipped (skill-only checkout)")
+        return
+    text = cmd.read_text(encoding="utf-8")
+    fm = text.split("---", 2)
+    if "name:" not in fm[1] or "description:" not in fm[1]:
+        fail("commands/handoff.md frontmatter incomplete")
+    for mode in ("quick", "resume", "show"):
+        if mode not in text:
+            fail(f"commands/handoff.md doesn't route mode: {mode}")
+    if "$ARGUMENTS" not in text:
+        fail("commands/handoff.md never consumes $ARGUMENTS")
+    if "handoff" not in fm[1]:
+        fail("commands/handoff.md doesn't reference the handoff skill")
+    ok("command file dispatches all modes to the skill via $ARGUMENTS")
+    # guard the real bug: an unanchored .gitignore rule (HANDOFF.md) plus
+    # case-insensitive git silently excludes commands/handoff.md from the publish.
+    root = cmd.parents[1]
+    if (root / ".git").exists():
+        ig = git("check-ignore", str(cmd), cwd=root, check=False)
+        if ig.returncode == 0:   # a match means it's ignored
+            fail("commands/handoff.md is git-ignored - it would never be published")
+        ok("command file is NOT git-ignored (publishable)")
+
 # ----- Layer G: date-relative archive selection (#4) -----
 # Drives off REAL files in a temp dir: create archives, glob them the way a resumer
 # does, and resolve relative references. Tests the mechanism, not a hand-picked list.
@@ -334,6 +363,7 @@ if __name__ == "__main__":
     test_quick_mode()
     test_description_table_sync()
     test_routing_correctness()
+    test_command_file()
     test_date_relative_pick()
     test_resume_staleness_e2e()
     elapsed = time.perf_counter() - t0

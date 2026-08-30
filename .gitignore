@@ -1,6 +1,8 @@
 __pycache__/
 *.pyc
 .DS_Store
-# generated handoffs — this repo is the skill, not a workspace that produces them
-HANDOFF.md
-*-HANDOFF.md
+# generated handoffs — this repo is the skill, not a workspace that produces them.
+# Anchored to repo root (leading /) so these do NOT match commands/handoff.md —
+# git is case-insensitive on Windows/macOS, so an unanchored HANDOFF.md would.
+/HANDOFF.md
+/*-HANDOFF.md
