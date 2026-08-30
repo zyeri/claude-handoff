@@ -5,6 +5,17 @@ All notable changes to this project are documented here. Releases follow
 format** is versioned separately as a plain integer (`Format: handoff/N`), bumped only
 when the doc's structure changes — see the "Document format" notes below.
 
+## [0.1.1] - 2026-08-30
+
+### Fixed
+- Guard the self-referential verification trap: a recorded verify that checks
+  working-tree cleanliness (`git status --short` expecting empty) breaks on resume
+  because the freshly written `HANDOFF.md` is untracked. SKILL.md now instructs such
+  a verify to exclude `HANDOFF.md` or expect it as the sole untracked entry, and the
+  self-audit re-checks the verify after the doc exists. (Reported by a peer session.)
+
+Document format unchanged (`handoff/1`).
+
 ## [0.1.0] - 2026-08-30
 
 Initial release.
