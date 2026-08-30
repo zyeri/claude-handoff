@@ -1,7 +1,5 @@
 # claude-handoff
 
-[![test](https://github.com/zyeri/claude-handoff/actions/workflows/test.yml/badge.svg)](https://github.com/zyeri/claude-handoff/actions/workflows/test.yml)
-
 A Claude Code skill for writing, resuming, and showing self-contained **handoff docs** — so any session (yours later, a teammate, or a fresh agent) can pick up work with zero prior context.
 
 ## What it does

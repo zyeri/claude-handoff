@@ -18,8 +18,9 @@ Initial release.
   runs the recorded verification, restates remaining work.
 - Cross-platform test fixture (`skills/handoff/tests/roundtrip.py`) — git mechanics plus
   skill-text assertions; quiet by default, `-v` for detail.
-- Plugin packaging (`.claude-plugin/plugin.json` + `marketplace.json`), MIT license,
-  GitHub Actions CI on a Linux/macOS/Windows matrix.
+- Plugin packaging (`.claude-plugin/plugin.json` + `marketplace.json`), MIT license.
+  (CI on a Linux/macOS/Windows matrix is prepared but deferred until the publishing
+  token carries the `workflow` scope; run the fixture manually meanwhile.)
 
 ### Document format
 - **handoff/1** — initial layout: header (When/Author/Format, Branch/Last commit,
