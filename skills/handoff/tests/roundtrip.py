@@ -113,6 +113,7 @@ def test_skill_text():
         "format stamp template":"**Format:** handoff/1",
         "format check in resume":"Check the format stamp",
         "format bump rule":     "record the change in `CHANGELOG.md`",
+        "self-ref verify trap": "self-referential trap",
     }
     for label, needle in required.items():
         if needle not in text:

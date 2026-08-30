@@ -61,7 +61,7 @@ Tune detail to who reads it (ask if unclear):
 4. **Prove the verification command works.** Actually run the command you plan to record. Only record it if it passes now — a verify command that doesn't work defeats the section. If nothing passes yet, say so ("tests red — expected until X").
 5. **Write `HANDOFF.md`** using the template below.
 6. **Self-audit before finishing** — run the same checks a resume would, against what you wrote:
-   - Does the `Verification` command actually pass right now (the exact command recorded)?
+   - Does the `Verification` command actually pass right now (the exact command recorded) — including now that `HANDOFF.md` exists? A git-status/clean-tree check will now see the untracked `?? HANDOFF.md`; exclude it or expect it as the sole untracked entry (see the Verification rule below).
    - Is every path relative to the stated base dir, and does each one exist?
    - Does `Branch:`/`Last commit:` match `git` right now?
    Fix anything that fails before saving — don't ship a handoff that wouldn't survive its own resume.
@@ -117,6 +117,7 @@ The one command that proves nothing is broken, and its expected result:
 - **One base dir.** State the repo root once in the header; make every command and path relative to it — never the author's cwd. A handoff travels (gist, another machine); `cd rttest` works from one place, `src/calc.py` works from the root anywhere.
 - Every remaining task starts with one doable action.
 - `Verification` is required and gets its own section — the highest-value line in the doc. Never record a verify command you haven't run.
+- **Guard the self-referential trap.** If the verify command inspects working-tree cleanliness (e.g. `git status --short` expecting empty output), it must account for `HANDOFF.md` itself: once the doc is written it appears as an untracked `?? HANDOFF.md` (unless git-ignored) and a naive clean-tree check flips to dirty on resume. Either exclude it (`git status --short -- . ':!HANDOFF.md'`), or record the expected result as "the only working-tree entry is `?? HANDOFF.md` (this handoff, untracked) — no other changes." This bites doc-only / pre-code repos, where a git-status check is the natural verification.
 - Pad every table so the pipes align in the raw source (table alignment, not just column alignment) — the `Key files` table above shows the target.
 - **Never write secret-shaped strings** into the doc — API keys, tokens, passwords, `.env` values, connection strings. Reference them by name ("`POSTMARK_TOKEN` — ask team lead"). Handoffs get shared, committed, and gisted.
 - **Format stamp.** The header carries `Format: handoff/1`. This integer versions the *document layout*, not the plugin release. Stamp the current value verbatim. Bump it (and record the change in `CHANGELOG.md`) ONLY when you change the HANDOFF.md structure — rename/add/remove a section or header field. The number lives here, next to the template it stamps, so the two cannot drift.
