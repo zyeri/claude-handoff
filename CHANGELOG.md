@@ -5,6 +5,16 @@ All notable changes to this project are documented here. Releases follow
 format** is versioned separately as a plain integer (`Format: handoff/N`), bumped only
 when the doc's structure changes — see the "Document format" notes below.
 
+## [0.1.2] - 2026-08-31
+
+### Changed
+- Resume format-stamp handling now covers all three mismatch cases: absent (treat as
+  `handoff/1`), higher (newer format — parse defensively), and lower (older layout —
+  read against that version's structure). Both mismatch clauses point to the CHANGELOG's
+  "Document format" notes as the layout record. (`skills/handoff/SKILL.md`)
+
+Document format unchanged (`handoff/1`).
+
 ## [0.1.1] - 2026-08-30
 
 ### Fixed
