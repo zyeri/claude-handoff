@@ -4,14 +4,14 @@
     "name": "Alex Schmidt (zyeri)"
   },
   "metadata": {
-    "description": "Self-contained session handoff docs for Claude Code - write, resume, and show HANDOFF.md.",
+    "description": "Self-contained session handoff docs for Claude Code - write, resume, show, and list session-stamped *-HANDOFF.md files.",
     "version": "0.2.0"
   },
   "plugins": [
     {
       "name": "claude-handoff",
       "source": "./",
-      "description": "Write, resume, and show self-contained handoff docs so any session (you later, a teammate, or a fresh agent) can pick up work with zero prior context.",
+      "description": "Write, resume, show, and list self-contained, session-stamped handoff docs so any session (you later, a teammate, or a fresh agent) can pick up work with zero prior context.",
       "category": "workflow",
       "tags": ["handoff", "session", "context", "resume", "continuity", "workflow"]
     }
