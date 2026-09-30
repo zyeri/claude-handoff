@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "Self-contained session handoff docs for Claude Code - write, resume, and show HANDOFF.md.",
-    "version": "0.1.2"
+    "version": "0.2.0"
   },
   "plugins": [
     {

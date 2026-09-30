@@ -67,12 +67,20 @@ def test_mechanics():
             fail("staleness drift not detected")
         ok("staleness: drift detected after new commit")
 
-        (work / "2026-08-30-1430-HANDOFF.md").write_text("")
-        (work / "2026-08-30-0900-HANDOFF.md").write_text("")
+        (work / "2026-08-30-143000-ca154123-HANDOFF.md").write_text("")
+        (work / "2026-08-30-090000-7f2e9a41-HANDOFF.md").write_text("")
         newest = sorted(p.name for p in work.glob("*-HANDOFF.md"))[-1]
-        if newest != "2026-08-30-1430-HANDOFF.md":
+        if newest != "2026-08-30-143000-ca154123-HANDOFF.md":
             fail(f"date-first sort (got {newest})")
         ok("date-first archive sorts chronologically")
+
+        # same-second collision resolved by session id, not overwritten
+        (work / "2026-08-30-143000-aaaaaaaa-HANDOFF.md").write_text("")
+        (work / "2026-08-30-143000-bbbbbbbb-HANDOFF.md").write_text("")
+        same_second = sorted(p.name for p in work.glob("2026-08-30-143000-*-HANDOFF.md"))
+        if len(same_second) != 3:
+            fail(f"same-second files collided (got {same_second})")
+        ok("session-id suffix prevents same-second filename collisions")
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -110,10 +118,15 @@ def test_skill_text():
         "clean-tree resumes":   "**clean** working tree",
         "dirty-tree asks":      "write a new one covering your current changes",
         "date-relative resume": "yesterday's",
-        "format stamp template":"**Format:** handoff/1",
+        "format stamp template":"**Format:** handoff/2",
         "format check in resume":"Check the format stamp",
         "format bump rule":     "record the change in `CHANGELOG.md`",
         "self-ref verify trap": "self-referential trap",
+        "session id in name":   "short-session-id",
+        "session env var":      "CLAUDE_CODE_SESSION_ID",
+        "session header line":  "**Session:**",
+        "no bare HANDOFF.md":   "there is no bare `HANDOFF.md`",
+        "cross-session check":  "written by a different session",
     }
     for label, needle in required.items():
         if needle not in text:
@@ -132,6 +145,7 @@ def test_halves_in_sync():
     shared = [
         ("Verification section", "## Verification", "Verification"),
         ("Branch header line",   "**Branch:**",     "Branch"),
+        ("Session header line",  "**Session:**",    "Session"),
         ("base dir header",      "Run everything from", "base dir"),
         ("Completed section",    "## Completed",    "Completed"),
         ("Remaining section",    "## Remaining",    "Remaining"),
@@ -149,7 +163,8 @@ def test_halves_in_sync():
 # the three things it must: base dir, branch, and a runnable verify command.
 SAMPLE = """# Handoff — sample
 
-- **When:** 2026-08-30 14:30 · **Author:** test · **Format:** handoff/1
+- **When:** 2026-08-30 14:30 · **Author:** test · **Format:** handoff/2
+- **Session:** ca154123 (full: ca154123-b6ff-45f6-8e61-0f3d22874fff)
 - **Branch:** `main` · **Last commit:** `abc1234 seed`
 - **Run everything from:** `.` — every command and path below is relative to here.
 - **Resume with:** `python -c "import calc"`
@@ -190,9 +205,15 @@ def test_resumable_contract():
         if "Format:" in line:
             fmt = line.split("Format:**")[1].strip().split()[0]
             break
-    if fmt != "handoff/1":
+    if fmt != "handoff/2":
         fail(f"resumer can't extract format stamp (got {fmt!r})")
-    ok("resumable: format stamp extractable (handoff/1)")
+    ok("resumable: format stamp extractable (handoff/2)")
+    # session line: resumer parses the short session id for disambiguation
+    session_line = next(l for l in SAMPLE.splitlines() if "**Session:**" in l)
+    session = session_line.split("**Session:**")[1].strip().split()[0]
+    if session != "ca154123":
+        fail(f"resumer can't extract session id (got {session!r})")
+    ok("resumable: session id extractable")
     # verify command lives in the fenced block after '## Verification'
     after = SAMPLE.split("## Verification", 1)[1]
     cmd = after.split("```", 2)[1].strip().splitlines()[0].split("#")[0].strip()
@@ -299,26 +320,25 @@ def test_command_file():
 def test_date_relative_pick():
     work = Path(tempfile.mkdtemp())
     try:
-        for n in ("2026-08-28-0900-HANDOFF.md",
-                  "2026-08-29-1400-HANDOFF.md",
-                  "2026-08-30-1030-HANDOFF.md"):
+        for n in ("2026-08-28-090000-aaaaaaaa-HANDOFF.md",
+                  "2026-08-29-140000-bbbbbbbb-HANDOFF.md",
+                  "2026-08-30-103000-cccccccc-HANDOFF.md"):
             (work / n).write_text("")
-        (work / "HANDOFF.md").write_text("")          # live doc, not an archive
         (work / "notes.md").write_text("")            # unrelated, must be ignored
         # glob exactly as the skill says: '*-HANDOFF.md', date-first sort
         archives = sorted(p.name for p in work.glob("*-HANDOFF.md"))
-        if archives != ["2026-08-28-0900-HANDOFF.md",
-                        "2026-08-29-1400-HANDOFF.md",
-                        "2026-08-30-1030-HANDOFF.md"]:
+        if archives != ["2026-08-28-090000-aaaaaaaa-HANDOFF.md",
+                        "2026-08-29-140000-bbbbbbbb-HANDOFF.md",
+                        "2026-08-30-103000-cccccccc-HANDOFF.md"]:
             fail(f"archive glob picked wrong set: {archives}")
-        ok("date-relative: glob selects only real *-HANDOFF.md archives")
+        ok("date-relative: glob selects only real *-HANDOFF.md files")
         today = "2026-08-30"
         prev = sorted(a for a in archives if not a.startswith(today))[-1]
-        if prev != "2026-08-29-1400-HANDOFF.md":
+        if prev != "2026-08-29-140000-bbbbbbbb-HANDOFF.md":
             fail(f"'previous' pick wrong (got {prev})")
         ok("date-relative: 'previous' resolves to newest before today")
         match = [a for a in archives if a.startswith("2026-08-28")]
-        if match != ["2026-08-28-0900-HANDOFF.md"]:
+        if match != ["2026-08-28-090000-aaaaaaaa-HANDOFF.md"]:
             fail("date-prefix match wrong")
         ok("date-relative: date prefix resolves exactly")
     finally:

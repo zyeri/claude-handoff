@@ -1,9 +1,25 @@
 # Changelog
 
 All notable changes to this project are documented here. Releases follow
-[Semantic Versioning](https://semver.org/). The generated `HANDOFF.md` **document
+[Semantic Versioning](https://semver.org/). The generated handoff file's **document
 format** is versioned separately as a plain integer (`Format: handoff/N`), bumped only
 when the doc's structure changes — see the "Document format" notes below.
+
+## [0.2.0] - 2026-09-03
+
+### Changed
+- **Breaking: no more bare `HANDOFF.md`.** Every write now creates a new file named
+  `<YYYY-MM-DD-HHMMSS>-<short-session-id>-HANDOFF.md` and never overwrites in place —
+  this is what makes concurrent agents in the same directory safe. "The handoff"
+  (unqualified) now means the newest file matching `*-HANDOFF.md`. Pruning (keep 3
+  most recent) is unchanged, just applied across all sessions' files.
+- Header gains a `**Session:**` line (short id, full id, and session name if the
+  harness exposes one), populated from `CLAUDE_CODE_SESSION_ID`. Resume and Show now
+  compare this against the acting session's own id and warn when a handoff belongs to
+  a different session, so an agent doesn't silently act on another agent's in-flight
+  work. (`skills/handoff/SKILL.md`, `skills/handoff/tests/roundtrip.py`)
+
+Document format bumped: **handoff/2** — see notes below.
 
 ## [0.1.2] - 2026-08-31
 
@@ -47,3 +63,6 @@ Initial release.
 - **handoff/1** — initial layout: header (When/Author/Format, Branch/Last commit,
   Run-everything-from, Resume-with), Goal, Completed, Remaining (confidence-tagged),
   Key files, How to resume, Verification, Watch out.
+- **handoff/2** (0.2.0) — adds a `**Session:**` header line (short id, full id,
+  session name if available) directly after `When/Author/Format`. All other sections
+  unchanged from handoff/1.

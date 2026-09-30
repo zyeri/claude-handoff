@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Write, resume, or show a self-contained handoff doc (HANDOFF.md). Triggers on writing intents — "create/write/make a handoff", wrap up, pause, hand off — on resuming intents — "read the handoff", resume, pick up, continue, "where were we" — and on show intents — "show me/print/display the handoff". Writing summarizes done/remaining/key-files/how-to-resume; resuming reads HANDOFF.md, restores context, runs the verification, and restates what's left; showing just renders it.
+description: Write, resume, or show a self-contained, session-stamped handoff doc (a dated `*-HANDOFF.md` file, safe for multiple concurrent agents in the same directory). Triggers on writing intents — "create/write/make a handoff", wrap up, pause, hand off — on resuming intents — "read the handoff", resume, pick up, continue, "where were we" — and on show intents — "show me/print/display the handoff". Writing summarizes done/remaining/key-files/how-to-resume; resuming reads the newest matching handoff file, restores context, runs the verification, and restates what's left; showing just renders it.
 ---
 
 # Handoff
@@ -15,19 +15,22 @@ One skill, two directions. Route by intent — from the slash arg if given, else
 | **Resume** (specific) | `/handoff resume <file>` | "resume yesterday's", "read the handoff from <date/file>" |
 | **Show** | `/handoff show` | "show me the handoff", "print/display the handoff", "just show the handoff" |
 
-**Show** vs **Resume:** Show only renders `HANDOFF.md` — no git, no checkout, no verify run — for when the user wants to *see* the doc. Resume does the heavyweight restore (checkout, verify, restate). The split hinges on the verb: **"read the handoff" means Resume** (act on it — reading a handoff is *for* resuming); **"show/display/print the handoff" means Show** (just look). When unsure which, prefer Resume and say you're doing the full restore, so the user can stop you if they only wanted to look.
+**Show** vs **Resume:** Show only renders the handoff file — no git, no checkout, no verify run — for when the user wants to *see* the doc. Resume does the heavyweight restore (checkout, verify, restate). The split hinges on the verb: **"read the handoff" means Resume** (act on it — reading a handoff is *for* resuming); **"show/display/print the handoff" means Show** (just look). When unsure which, prefer Resume and say you're doing the full restore, so the user can stop you if they only wanted to look.
+
+**Every handoff is a dated, session-stamped file — there is no bare `HANDOFF.md`.** Filenames are `<YYYY-MM-DD-HHMMSS>-<short-session-id>-HANDOFF.md` (e.g. `2026-09-03-153042-ca154123-HANDOFF.md`); see step 3 under Writing. "The handoff" (unqualified) means the newest file matching `*-HANDOFF.md` in the working directory.
 
 **Default when nothing disambiguates** (bare request, no verb, no clear phrasing):
-- No `HANDOFF.md` present → **write, Full**.
-- `HANDOFF.md` present + **clean** working tree → **resume** (nothing local to lose; continuing is the obvious intent).
-- `HANDOFF.md` present + **dirty** working tree → **ask**: "Resume the existing handoff, or write a new one covering your current changes?" Never guess here — the dirty tree could be work the old handoff documents, or new work that wants its own handoff.
+- No file matches `*-HANDOFF.md` → **write, Full**.
+- A match exists + **clean** working tree → **resume** the newest match (nothing local to lose; continuing is the obvious intent).
+- A match exists + **dirty** working tree → **ask**: "Resume the existing handoff, or write a new one covering your current changes?" Never guess here — the dirty tree could be work the old handoff documents, or new work that wants its own handoff.
+- If the newest match's session id (parsed from its `**Session:**` header line) differs from this session's own `CLAUDE_CODE_SESSION_ID`, say so before resuming/showing it — e.g. "this handoff was written by a different session (ca154123)" — so an agent doesn't silently act on another agent's in-flight work.
 
 ### For specific/date-relative resume (`/handoff resume <ref>`)
-`<ref>` may be a filename or a relative phrase. Resolve against `*-HANDOFF.md` archives (names are date-first, so they sort chronologically):
+`<ref>` may be a filename or a relative phrase. Resolve against `*-HANDOFF.md` files (names are date-first, so they sort chronologically):
 - exact filename → that file
-- "yesterday's" / "last / previous" → the newest archive strictly before today (or the 2nd-newest if `HANDOFF.md` is today's)
-- a date like "2026-08-29" → the archive whose prefix matches
-If nothing matches, list the archives and ask.
+- "yesterday's" / "last / previous" → the newest file strictly before today (or the 2nd-newest if the newest is from today)
+- a date like "2026-08-29" → the file(s) whose prefix matches; if more than one session wrote that day, list them and ask which
+If nothing matches, list the files and ask.
 
 ---
 
@@ -57,13 +60,14 @@ Tune detail to who reads it (ask if unclear):
    - **Not a git repo** — skip the git commands (don't let them error). Draft from the filesystem: recently modified files; omit the `Branch:`/`Last commit:` header lines. Say in the doc that it's not version-controlled.
    - Either way, read any plan/TODO/spec file present (e.g. `PLAN.md`, `TASK_LIST.md`, `TODO.md`).
 2. **Handle uncommitted work explicitly.** A dirty tree loses context on resume. If `git status` shows changes, tell the reader what to do: commit them, stash them (and note the stash), or list exactly which files are mid-edit and why. Never leave "you have local changes" unexplained.
-3. **Don't clobber an existing handoff.** If `HANDOFF.md` already exists, archive it first, then write anew. Name the archive **date-first** so alphabetical sort is chronological: `<YYYY-MM-DD-HHMM>-HANDOFF.md` (e.g. `2026-08-30-1430-HANDOFF.md`). Then prune: keep only the 3 most recent `*-HANDOFF.md` archives.
+3. **Name the file — never overwrite in place.** Every write creates a new file; nothing is ever clobbered, which is what makes concurrent agents safe. Format: `<YYYY-MM-DD-HHMMSS>-<short-session-id>-HANDOFF.md` — date-first so alphabetical sort is chronological, seconds plus the session id so two agents writing in the same second never collide. `<short-session-id>` is the first 8 characters of the `CLAUDE_CODE_SESSION_ID` environment variable (fall back to a random 8-hex-char string if that variable is unset — e.g. no session id is exposed in this harness — and note the fallback in `Watch out`). Example: `2026-09-03-153042-ca154123-HANDOFF.md`. After writing, prune: keep only the 3 most recent `*-HANDOFF.md` files (across all sessions).
 4. **Prove the verification command works.** Actually run the command you plan to record. Only record it if it passes now — a verify command that doesn't work defeats the section. If nothing passes yet, say so ("tests red — expected until X").
-5. **Write `HANDOFF.md`** using the template below.
+5. **Write the file** (name from step 3) using the template below.
 6. **Self-audit before finishing** — run the same checks a resume would, against what you wrote:
-   - Does the `Verification` command actually pass right now (the exact command recorded) — including now that `HANDOFF.md` exists? A git-status/clean-tree check will now see the untracked `?? HANDOFF.md`; exclude it or expect it as the sole untracked entry (see the Verification rule below).
+   - Does the `Verification` command actually pass right now (the exact command recorded) — including now that the handoff file exists? A git-status/clean-tree check will now see the untracked handoff file; exclude it or expect it as the sole untracked entry (see the Verification rule below).
    - Is every path relative to the stated base dir, and does each one exist?
    - Does `Branch:`/`Last commit:` match `git` right now?
+   - Does the `Session:` line's id match `CLAUDE_CODE_SESSION_ID` right now (or the fallback, if noted)?
    Fix anything that fails before saving — don't ship a handoff that wouldn't survive its own resume.
 7. **Confirm** the path written and name any open decisions the reader must make.
 
@@ -73,7 +77,8 @@ Tune detail to who reads it (ask if unclear):
 # Handoff — <project/task name>
 
 <!-- Reader starts here: where am I, what do I run -->
-- **When:** <YYYY-MM-DD HH:MM> · **Author:** <name/agent> · **Format:** handoff/1
+- **When:** <YYYY-MM-DD HH:MM> · **Author:** <name/agent> · **Format:** handoff/2
+- **Session:** <short-session-id> (full: <full-session-id>)<· session name, if the harness exposes one>
 - **Branch:** `<branch>` · **Last commit:** `<hash> <subject>`
 - **Run everything from:** `<repo root, e.g. the dir containing .git>` — every command and path below is relative to here.
 - **Resume with:** `<the one command to get going>`
@@ -117,10 +122,11 @@ The one command that proves nothing is broken, and its expected result:
 - **One base dir.** State the repo root once in the header; make every command and path relative to it — never the author's cwd. A handoff travels (gist, another machine); `cd rttest` works from one place, `src/calc.py` works from the root anywhere.
 - Every remaining task starts with one doable action.
 - `Verification` is required and gets its own section — the highest-value line in the doc. Never record a verify command you haven't run.
-- **Guard the self-referential trap.** If the verify command inspects working-tree cleanliness (e.g. `git status --short` expecting empty output), it must account for `HANDOFF.md` itself: once the doc is written it appears as an untracked `?? HANDOFF.md` (unless git-ignored) and a naive clean-tree check flips to dirty on resume. Either exclude it (`git status --short -- . ':!HANDOFF.md'`), or record the expected result as "the only working-tree entry is `?? HANDOFF.md` (this handoff, untracked) — no other changes." This bites doc-only / pre-code repos, where a git-status check is the natural verification.
+- **Guard the self-referential trap.** If the verify command inspects working-tree cleanliness (e.g. `git status --short` expecting empty output), it must account for the handoff file itself: once written it appears as an untracked `?? <name>-HANDOFF.md` (unless git-ignored) and a naive clean-tree check flips to dirty on resume. Either exclude it (`git status --short -- . ':!*-HANDOFF.md'`), or record the expected result as "the only working-tree entry is this handoff file, untracked — no other changes." This bites doc-only / pre-code repos, where a git-status check is the natural verification.
 - Pad every table so the pipes align in the raw source (table alignment, not just column alignment) — the `Key files` table above shows the target.
 - **Never write secret-shaped strings** into the doc — API keys, tokens, passwords, `.env` values, connection strings. Reference them by name ("`POSTMARK_TOKEN` — ask team lead"). Handoffs get shared, committed, and gisted.
-- **Format stamp.** The header carries `Format: handoff/1`. This integer versions the *document layout*, not the plugin release. Stamp the current value verbatim. Bump it (and record the change in `CHANGELOG.md`) ONLY when you change the HANDOFF.md structure — rename/add/remove a section or header field. The number lives here, next to the template it stamps, so the two cannot drift.
+- **Format stamp.** The header carries `Format: handoff/2`. This integer versions the *document layout*, not the plugin release. Stamp the current value verbatim. Bump it (and record the change in `CHANGELOG.md`) ONLY when you change the HANDOFF.md structure — rename/add/remove a section or header field. The number lives here, next to the template it stamps, so the two cannot drift.
+- **Session line exists for disambiguation, not just identity.** When multiple agents work the same directory, the `Session:` line plus the filename's timestamp+id are what let a reader (or a resuming agent) tell handoffs apart and avoid mixing up whose work is whose. Always populate it from the real environment value — never invent an id.
 
 ---
 
@@ -128,16 +134,17 @@ The one command that proves nothing is broken, and its expected result:
 
 ## Steps
 
-1. **Find and read the handoff.** Read `HANDOFF.md` in the working directory. If it's missing, list any `*-HANDOFF.md` archives (date-first, so the last one alphabetically is newest) and ask which to use.
-2. **Check the format stamp.** Read the header's `Format: handoff/N`. This skill writes `handoff/1`. If the line is **absent**, treat the doc as `handoff/1` (pre-versioning) and proceed. If `N` is **higher** than what this skill writes, warn that the doc was written by a newer handoff format and some fields may have moved — parse defensively rather than trusting positions. If `N` is **lower**, the doc uses an older layout — read it against that older format's structure (fields may be named or positioned differently from the current template) rather than assuming the current one. Either way, the CHANGELOG's "Document format" notes record each version's layout — consult them when `N` differs from what this skill writes.
-3. **Check staleness.** Compare the handoff's `When:` timestamp and `Last commit` hash against `git log --oneline -5`. If commits landed after the handoff was written, warn loudly — the doc describes a *past* state and its Completed/Remaining lists may be wrong. Report how many commits diverged before doing anything else.
-4. **Restore the branch.** From the header's `Branch:` line: if already on it, skip. Otherwise check `git status --short` first — a dirty tree makes `git checkout` fail or silently no-op. If dirty, stop and tell the reader to commit/stash before switching; don't assume the switch happened. Report if the branch is missing or diverged from the `Last commit` hash.
-5. **Run the verification command.** Execute the `Verification` section's command from the stated base dir. Report pass/fail against its expected result — the fastest proof the work is in the state the handoff claims.
-6. **Restate status.** Summarize back to the reader:
+1. **Find and read the handoff.** Glob `*-HANDOFF.md` in the working directory; the newest by filename (date-first, so alphabetical sort is chronological) is "the handoff" unless a specific ref was given. If nothing matches, list any candidates and ask which to use.
+2. **Check whose session it is.** Parse the header's `Session:` line and compare its short id to this session's own `CLAUDE_CODE_SESSION_ID`. If they differ, say so plainly before proceeding — "this handoff was written by a different session (<id>)" — since another agent may still be working from it.
+3. **Check the format stamp.** Read the header's `Format: handoff/N`. This skill writes `handoff/2`. If the line is **absent**, treat the doc as `handoff/1` (pre-versioning) and proceed. If `N` is **higher** than what this skill writes, warn that the doc was written by a newer handoff format and some fields may have moved — parse defensively rather than trusting positions. If `N` is **lower**, the doc uses an older layout — read it against that older format's structure (fields may be named or positioned differently from the current template) rather than assuming the current one. Either way, the CHANGELOG's "Document format" notes record each version's layout — consult them when `N` differs from what this skill writes.
+4. **Check staleness.** Compare the handoff's `When:` timestamp and `Last commit` hash against `git log --oneline -5`. If commits landed after the handoff was written, warn loudly — the doc describes a *past* state and its Completed/Remaining lists may be wrong. Report how many commits diverged before doing anything else.
+5. **Restore the branch.** From the header's `Branch:` line: if already on it, skip. Otherwise check `git status --short` first — a dirty tree makes `git checkout` fail or silently no-op. If dirty, stop and tell the reader to commit/stash before switching; don't assume the switch happened. Report if the branch is missing or diverged from the `Last commit` hash.
+6. **Run the verification command.** Execute the `Verification` section's command from the stated base dir. Report pass/fail against its expected result — the fastest proof the work is in the state the handoff claims.
+7. **Restate status.** Summarize back to the reader:
    - What's done (from `Completed`).
    - The remaining tasks, with the **first one's first concrete action** called out as the next move; lead with `(clear)` items, flag `(blocked)` ones.
    - Anything from `Watch out` that affects the next step.
-7. **Flag drift.** If repo reality contradicts the handoff (branch gone, verification fails, files named don't exist), say so plainly instead of proceeding — a stale handoff is worse than none.
+8. **Flag drift.** If repo reality contradicts the handoff (branch gone, verification fails, files named don't exist), say so plainly instead of proceeding — a stale handoff is worse than none.
 
 ## Rules
 
@@ -151,6 +158,6 @@ The one command that proves nothing is broken, and its expected result:
 
 Just render the doc — the reader wants to *look*, not act. No git, no checkout, no verify run.
 
-1. Read `HANDOFF.md` (or the archive named/implied). If missing, list `*-HANDOFF.md` archives.
-2. Print it as-is. Optionally add a one-line staleness note if the `When:` date is clearly old — but take no action.
+1. Read the file named/implied, or the newest `*-HANDOFF.md` in the working directory if unspecified. If none match, list any candidates.
+2. Print it as-is. Optionally add a one-line staleness note if the `When:` date is clearly old, or a one-line note if its `Session:` id differs from this session's own — but take no action.
 3. If the reader then wants to act, they'll say "resume" / "pick up" — hand off to the Resume direction.
