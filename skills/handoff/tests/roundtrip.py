@@ -2,13 +2,17 @@
 """Round-trip fixture for the handoff skill (write, resume, show, list).
 
 Cross-platform: runs on Windows, macOS, and Linux (pure Python + git).
-Run after editing SKILL.md:  python skills/handoff/tests/roundtrip.py
+Run after editing SKILL.md, write.md, resume.md, or scripts/handoff_state.py:
+  python skills/handoff/tests/roundtrip.py
 Prints per-check status; exits 0 with "ALL PASS", non-zero on first failure.
+
+The Write half is write.md and the Resume half is resume.md; SKILL.md is the router.
 
 Layers:
   A. Mechanics - the git and filename behaviors the skill relies on actually hold.
-  B. Skill text - SKILL.md still contains the instructions those mechanics enforce,
-     so deleting a step from the doc fails the test (guards the skill, not just git).
+  B. Skill text - the skill files still contain the instructions those mechanics
+     enforce, so deleting a step from the doc fails the test (guards the skill, not
+     just git); the router points at the direction files without carrying them.
   C. The Write and Resume halves agree on section and header names.
   D. A handoff built from the template is resumable (base dir, branch, session, verify).
   E. Quick mode's definition in SKILL.md keeps header, Remaining, Verification.
@@ -18,8 +22,10 @@ Layers:
   I. Each phrasing routes to the correct direction.
   J. The slash command routes every mode; command file and README use current naming.
   K. Half-scoped rules: each needle is checked in the half (Write/Resume) it governs.
+  L. The state script reports correct JSON against temp repos, writes nothing, and
+     every direction is told to call it.
 """
-import re, subprocess, sys, tempfile, shutil, time
+import json, os, re, subprocess, sys, tempfile, shutil, time
 from pathlib import Path
 from typing import NoReturn
 
@@ -27,8 +33,11 @@ from typing import NoReturn
 BARE_NAME = re.compile(r"(?<![\w*-])HANDOFF\.md")
 
 SKILL = Path(__file__).resolve().parent.parent / "SKILL.md"
+WRITE = SKILL.parent / "write.md"     # Write direction, read on demand
+RESUME = SKILL.parent / "resume.md"   # Resume direction, read on demand
 VERBOSE = "-v" in sys.argv or "--verbose" in sys.argv
-SLOW_BUDGET_S = 3.0   # soft warn past this; not a failure (slow machines vary)
+SLOW_BUDGET_S = 5.0   # soft warn past this; not a failure (layer L starts ~9 Pythons)
+DESC_BUDGET = 450     # chars, the always-loaded frontmatter description line
 passed = 0
 
 def ok(msg):
@@ -38,6 +47,11 @@ def ok(msg):
 
 def fail(msg) -> NoReturn:
     print(f"FAIL: {msg}", file=sys.stderr); sys.exit(1)
+
+def _all_text():
+    """Router plus both direction files: whole-skill checks search all three."""
+    _halves()
+    return "\n".join(f.read_text(encoding="utf-8") for f in (SKILL, WRITE, RESUME))
 
 def git(*args, cwd, check=True):
     return subprocess.run(["git", *args], cwd=cwd, check=check,
@@ -128,7 +142,7 @@ def test_mechanics():
 
 # ----- Layer B: skill text still enforces the mechanics -----
 def test_skill_text():
-    text = SKILL.read_text(encoding="utf-8")
+    text = _all_text()
     required = {
         "no-git detection":     "is-inside-work-tree",
         "date-first archive":   "date-first",
@@ -162,14 +176,25 @@ def test_skill_text():
         if needle not in text:
             fail(f"SKILL.md missing instruction for: {label} ({needle!r})")
         ok(f"skill text present: {label}")
+    # the router loads on every call: it must point at the direction files and
+    # must not carry their bodies, or the split saves nothing
+    router = SKILL.read_text(encoding="utf-8")
+    for name in ("write.md", "resume.md"):
+        if name not in router:
+            fail(f"router SKILL.md never tells the agent to read {name}")
+        ok(f"router points at {name}")
+    for heading in ("# Writing a handoff", "# Resuming from a handoff"):
+        if f"\n{heading}\n" in router:
+            fail(f"router SKILL.md still carries the {heading!r} body")
+        ok(f"router does not carry {heading!r}")
 
 # ----- Layer K: half-scoped rules (a needle in the wrong half proves nothing) -----
 def _halves():
-    text = SKILL.read_text(encoding="utf-8")
-    write_half, _, resume_half = text.partition("# Resuming from a handoff")
-    if not resume_half:
-        fail("could not split SKILL.md into Write / Resume halves")
-    return write_half, resume_half
+    """The Write half is write.md, the Resume half is resume.md (split in 0.2.1)."""
+    for f in (WRITE, RESUME):
+        if not f.exists():
+            fail(f"direction file missing: {f.name}")
+    return WRITE.read_text(encoding="utf-8"), RESUME.read_text(encoding="utf-8")
 
 def test_half_scoped_rules():
     write_half, _ = _halves()
@@ -179,7 +204,7 @@ def test_half_scoped_rules():
     if "never delete" not in write_half or "suggest" not in write_half:
         fail("Write half must list old handoffs and suggest removal, never delete")
     ok("write: old handoffs are listed for removal, never deleted")
-    text = SKILL.read_text(encoding="utf-8")
+    text = _all_text()
     _, resume_half = _halves()
     checks = [
         # 11: Author carries a human name, not always "Claude"
@@ -232,6 +257,14 @@ def test_half_scoped_rules():
         if needle not in write_half:
             fail(f"Write half missing {label} ({needle!r})")
         ok(f"write: {label}")
+    # verify runs once: the self-audit reruns it only when the handoff file can
+    # change the result (the self-referential trap), else reuses step 4
+    audit = write_half.split("**Self-audit", 1)[1].split("\n7.", 1)[0]
+    for needle, label in [("reuse the step 4 result", "self-audit reuses step 4 verify"),
+                          ("working-tree", "self-audit names the rerun condition")]:
+        if needle not in audit:
+            fail(f"self-audit missing {label} ({needle!r})")
+        ok(f"write: {label}")
     # portable base dir: name the repo by identity, not the author's local path
     for needle, label in [("git remote get-url origin", "base dir from repo identity"),
                           ("no absolute path from this machine", "self-audit: no local absolute paths")]:
@@ -243,10 +276,7 @@ def test_half_scoped_rules():
 # A section written by the Write half is read by name in the Resume half.
 # Rename one without the other and the doc silently breaks - assert both agree.
 def test_halves_in_sync():
-    text = SKILL.read_text(encoding="utf-8")
-    write_half, _, resume_half = text.partition("# Resuming from a handoff")
-    if not resume_half:
-        fail("could not split SKILL.md into Write / Resume halves")
+    write_half, resume_half = _halves()
     # (label, token the WRITE template emits, token the RESUME half reads it by)
     shared = [
         ("Verification section", "## Verification", "Verification"),
@@ -334,7 +364,7 @@ def test_resumable_contract():
 
 # ----- Layer E: Quick mode still carries the must-haves -----
 def test_quick_mode():
-    text = SKILL.read_text(encoding="utf-8")
+    text = _all_text()
     quick = next((l for l in text.splitlines() if l.startswith("- **Quick**")), None)
     if quick is None:
         fail("SKILL.md no longer defines Quick mode")
@@ -361,6 +391,10 @@ def test_description_table_sync():
         if phrase not in body:
             fail(f"trigger phrase missing from routing body: {phrase!r}")
         ok(f"trigger in both description + body: {phrase!r}")
+    # the description sits in context every session, invoked or not: keep it lean
+    if len(desc) > DESC_BUDGET:
+        fail(f"description is {len(desc)} chars (> {DESC_BUDGET} budget)")
+    ok(f"description within budget ({len(desc)} <= {DESC_BUDGET} chars)")
 
 # ----- Layer I: phrasings route to the CORRECT direction (not just present) -----
 # Presence != routing. Find each phrase's row in the routing table and assert the
@@ -517,6 +551,174 @@ def test_resume_staleness_e2e():
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
+# ----- Layer L: the state script gathers in one call what the skill needs -----
+# Run as a subprocess, never imported (an import would write __pycache__).
+SCRIPT = SKILL.parent / "scripts" / "handoff_state.py"
+SID = "ca154123-b6ff-45f6-8e61-0f3d22874fff"
+
+def state(mode, *args, cwd, sid: str | None = SID):
+    env = {k: v for k, v in os.environ.items()
+           if k != "CLAUDE_CODE_SESSION_ID"}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    if sid is not None:
+        env["CLAUDE_CODE_SESSION_ID"] = sid
+    r = subprocess.run([sys.executable, str(SCRIPT), mode, *args], cwd=cwd, env=env,
+                       capture_output=True, encoding="utf-8", errors="replace")
+    if r.returncode != 0:
+        fail(f"handoff_state.py {mode} exited {r.returncode}: {r.stderr.strip()}")
+    if not r.stdout.isascii():
+        fail(f"handoff_state.py {mode} printed non-ASCII output")
+    try:
+        return json.loads(r.stdout)
+    except ValueError:
+        fail(f"handoff_state.py {mode} printed non-JSON: {r.stdout[:200]!r}")
+
+def _doc(when, session, commit, goal=None, remaining="(clear) next - do it"):
+    head = (f"# Handoff - t\n\n- **When:** {when} | **Author:** t | **Format:** handoff/2\n"
+            f"- **Session:** {session} (full: {session}-x)\n"
+            f"- **Branch:** `main` | **Last commit:** `{commit} seed`\n\n")
+    body = f"## Goal\n{goal}\n\n" if goal else ""
+    return head + body + f"## Remaining\n- [ ] {remaining}\n"
+
+def test_state_script():
+    if not SCRIPT.exists():
+        fail(f"state script missing: {SCRIPT.name}")
+    # each direction gathers through the script, and keeps the raw commands as
+    # the fallback for hosts with no Python
+    router = SKILL.read_text(encoding="utf-8")
+    write_half, resume_half = _halves()
+    listing = router.split("# Listing handoffs", 1)[-1]
+    for hay, needle, label in [
+            (router, "uv run --no-project --script", "router: uv invocation"),
+            (router, "scripts/handoff_state.py", "router: script path"),
+            (router, "python3", "router: no-uv fallback"),
+            (write_half, "handoff_state.py write", "write: gathers via the script"),
+            (write_half, "git log --oneline -20", "write: raw-command fallback kept"),
+            (resume_half, "handoff_state.py resume", "resume: gathers via the script"),
+            (listing, "handoff_state.py list", "list: rows via the script")]:
+        if needle not in hay:
+            fail(f"skill text missing {label} ({needle!r})")
+        ok(label)
+    work = Path(tempfile.mkdtemp())
+    try:
+        git("init", "-q", "-b", "main", cwd=work)
+        git("config", "user.email", "t@t", cwd=work)
+        git("config", "user.name", "t", cwd=work)
+        (work / "calc.py").write_text("x = 1\n")
+        git("add", "-A", cwd=work); git("commit", "-qm", "seed", cwd=work)
+        head = git("rev-parse", "--short", "HEAD", cwd=work).stdout.strip()
+        (work / "calc.py").write_text("x = 2\n")              # dirty
+        (work / "TODO.md").write_text("- a\n")
+        sub = work / "pkg"; sub.mkdir()
+        (sub / "new.py").write_text("y = 1\n")                # untracked, below the root
+
+        before = sorted(p.name for p in work.rglob("*") if ".git" not in p.parts)
+        w = state("write", cwd=sub)
+        after = sorted(p.name for p in work.rglob("*") if ".git" not in p.parts)
+        if before != after:
+            fail(f"state script wrote files: {set(after) - set(before)}")
+        ok("state: read-only (no files created)")
+
+        if not w["in_git"] or Path(w["base_dir"]).resolve() != work.resolve():
+            fail(f"state write: base dir {w['base_dir']!r}, in_git {w['in_git']!r}")
+        ok("state write: base dir is the repo root from a subdirectory")
+        if w["branch"] != "main" or w["user_name"] != "t" or w["remote"] is not None:
+            fail(f"state write: branch/user/remote wrong: {w['branch']!r} {w['user_name']!r} {w['remote']!r}")
+        ok("state write: branch, user.name, no remote")
+        if not any("seed" in l for l in w["log"]) or "calc.py" not in w["status"]:
+            fail(f"state write: log/status wrong: {w['log']!r} {w['status']!r}")
+        if "calc.py" not in w["diff_stat"] or w["stash"] != []:
+            fail(f"state write: diff_stat/stash wrong: {w['diff_stat']!r} {w['stash']!r}")
+        ok("state write: log, status, diff stat, stash")
+        if "?? pkg/" not in w["status"]:            # from pkg/ git would say "?? ./"
+            fail(f"state write: status paths not repo-root-relative: {w['status']!r}")
+        ok("state write: status paths are relative to the repo root, not the cwd")
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}-\d{6}", w["timestamp"]):
+            fail(f"state write: timestamp format {w['timestamp']!r}")
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", w["when"]):
+            fail(f"state write: when format {w['when']!r}")
+        if w["timestamp"][:10] != w["when"][:10]:
+            fail("state write: timestamp and when disagree")
+        ok("state write: timestamp and When from one clock reading")
+        s = w["session"]
+        if s != {"full": SID, "short": SID[:8], "fallback": False}:
+            fail(f"state write: session {s!r}")
+        ok("state write: short id is the first 8 chars of CLAUDE_CODE_SESSION_ID")
+        if w["plan_files"] != ["TODO.md"]:
+            fail(f"state write: plan_files {w['plan_files']!r}")
+        ok("state write: plan/TODO files found at the base dir")
+
+        fb = state("write", cwd=work, sid=None)["session"]
+        if not (fb["fallback"] and fb["full"] is None and re.fullmatch(r"[0-9a-f]{8}", fb["short"])):
+            fail(f"state write: fallback session {fb!r}")
+        ok("state write: random 8-hex fallback id when the env var is unset")
+
+        # handoff files: date-first sort, legacy placed by When:, header parsing
+        (work / "2026-08-30-090000-7f2e9a41-HANDOFF.md").write_text(
+            _doc("2026-08-30 09:00", "7f2e9a41", head, goal="Ship calc. Then more."))
+        (work / "2026-08-30-143000-ca154123-HANDOFF.md").write_text(
+            _doc("2026-08-30 14:30", "ca154123", head))           # Quick: no Goal
+        (work / "HANDOFF.md").write_text(_doc("2026-08-30 12:00", "-", head, goal="Old."))
+        lst = state("list", cwd=work)["handoffs"]
+        names = [h["name"] for h in lst]
+        if names != ["2026-08-30-143000-ca154123-HANDOFF.md", "HANDOFF.md",
+                     "2026-08-30-090000-7f2e9a41-HANDOFF.md"]:
+            fail(f"state list: order {names!r}")
+        ok("state list: newest first, legacy placed by its When:")
+        newest, legacy, oldest = lst
+        if not legacy["legacy"] or newest["legacy"]:
+            fail("state list: legacy flag wrong")
+        if not newest["own"] or oldest["own"]:
+            fail("state list: own-session flag wrong")
+        ok("state list: legacy and own-session flags")
+        if oldest["goal"] != "Ship calc." or newest["goal"] != "(clear) next - do it":
+            fail(f"state list: goal {oldest['goal']!r} / {newest['goal']!r}")
+        if (oldest["session"], oldest["branch"], oldest["format"], oldest["when"]) != \
+                ("7f2e9a41", "main", "handoff/2", "2026-08-30 09:00"):
+            fail(f"state list: header parse {oldest!r}")
+        if oldest["last_commit"] != head:
+            fail(f"state list: last_commit {oldest['last_commit']!r}")
+        ok("state list: header fields, Goal sentence, Remaining fallback")
+
+        # resume: target, staleness (current, drift, rewritten), --file
+        r = state("resume", cwd=work)
+        if r["target"]["name"] != newest["name"] or r["current_branch"] != "main":
+            fail(f"state resume: target {r['target']!r}")
+        st = r["staleness"]
+        if (st["recorded_commit"], st["is_ancestor"], st["drift"]) != (head, True, 0) \
+                or not st["latest_commit_date"]:
+            fail(f"state resume: fresh staleness {st!r}")
+        ok("state resume: newest target, current handoff shows 0 drift")
+        git("add", "calc.py", cwd=work); git("commit", "-qm", "caf\u00e9 \u00fc", cwd=work)
+        st = state("resume", cwd=work)["staleness"]
+        if (st["is_ancestor"], st["drift"]) != (True, 1):
+            fail(f"state resume: drift {st!r}")
+        ok("state resume: drift counted, non-ASCII subject survives")
+        git("checkout", "-q", "--orphan", "other", cwd=work)
+        git("commit", "-qm", "rewritten", cwd=work)
+        st = state("resume", "--file", oldest["name"], cwd=work)
+        if st["target"]["name"] != oldest["name"]:
+            fail("state resume: --file not honoured")
+        if (st["staleness"]["is_ancestor"], st["staleness"]["drift"]) != (False, None):
+            fail(f"state resume: rewritten history {st['staleness']!r}")
+        ok("state resume: --file, rewritten history gives no drift count")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+    outside = Path(tempfile.mkdtemp())
+    try:
+        w = state("write", cwd=outside)
+        if w["in_git"] or w["branch"] is not None or w["log"] is not None:
+            fail(f"state write outside git: {w!r}")
+        if Path(w["base_dir"]).resolve() != outside.resolve():
+            fail(f"state write outside git: base dir {w['base_dir']!r}")
+        r = state("resume", cwd=outside)
+        if r["target"] is not None or r["staleness"] is not None:
+            fail(f"state resume with no handoffs: {r!r}")
+        ok("state: non-git dir and no handoffs handled without errors")
+    finally:
+        shutil.rmtree(outside, ignore_errors=True)
+
 if __name__ == "__main__":
     if not shutil.which("git"):
         fail("git not on PATH")
@@ -532,6 +734,7 @@ if __name__ == "__main__":
     test_command_file()
     test_date_relative_pick()
     test_resume_staleness_e2e()
+    test_state_script()
     elapsed = time.perf_counter() - t0
     print(f"ALL PASS ({passed} checks, {elapsed:.2f}s)"
           + ("   [run with -v for per-check output]" if not VERBOSE else ""))

@@ -5,6 +5,36 @@ All notable changes to this project are documented here. Releases follow
 format** is versioned separately as a plain integer (`Format: handoff/N`), bumped only
 when the doc's structure changes - see the "Document format" notes below.
 
+## [0.2.1] - 2026-10-04
+
+Document format unchanged: **handoff/2**.
+
+### Changed
+- **Faster to load.** `SKILL.md` is now a router (routing, naming, base dir, Show,
+  List); the Write and Resume instructions moved to `write.md` and `resume.md`,
+  which the agent reads only for that direction, and their steps now gather state
+  through the script below. Per invocation the
+  agent now loads about 16 KB for Write, 12 KB for Resume, and 7 KB for Show or
+  List, down from 19 KB for every direction.
+- **Faster to run.** New read-only `scripts/handoff_state.py` (stdlib only, PEP 723)
+  prints one JSON object with everything Write, Resume, and List used to gather
+  with separate commands: base dir, branch, log, status, diff stat, stash,
+  user.name, remote, timestamp, session id, every handoff with its parsed header,
+  and Resume's staleness results. The by-hand commands stay as the fallback when
+  no Python is available. The script starts its git calls in parallel, imports
+  only what `subprocess` does not already load, runs git with
+  `GIT_OPTIONAL_LOCKS=0` so it never rewrites the index, and prints compact JSON.
+  Measured on Windows against a 60-commit repo with 13 handoffs: write 98 ms,
+  resume 87 ms, list 62 ms per run, against 208, 169, and 76 ms for the first
+  draft that ran its git calls one at a time.
+- **Verify runs once per write.** The self-audit reruns the verification command
+  only when it can see the new handoff file (working-tree or git-status checks, or
+  a `*-HANDOFF.md` glob), or when other files changed after step 4.
+- The always-loaded skill `description` is shorter (400 characters, from 727),
+  keeping every trigger phrase.
+- `roundtrip.py` reads the split files, checks the description length budget, and
+  adds a layer for the state script.
+
 ## [0.2.0] - 2026-09-30
 
 Document format bumped: **handoff/2** - see notes below.

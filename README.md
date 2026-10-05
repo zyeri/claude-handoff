@@ -44,7 +44,7 @@ The behaviors the skill depends on are covered by a cross-platform fixture (pure
 python skills/handoff/tests/roundtrip.py
 ```
 
-It checks three things: (A) the git **mechanics** the skill relies on (date-first sorting, same-second collisions, repo-root lookup from a subdirectory, rewritten-commit detection); (B) that `SKILL.md` still **contains the instructions** those mechanics enforce, each checked in the half (Write or Resume) it governs - so deleting a step from the doc fails the test; and (C) that the routing table, slash command, and this README agree with the skill. Prints `ALL PASS (<n> checks)` on success; `-v` shows each check.
+It checks four things: (A) the git **mechanics** the skill relies on (date-first sorting, same-second collisions, repo-root lookup from a subdirectory, rewritten-commit detection); (B) that the skill files still **contain the instructions** those mechanics enforce, each checked in the direction file (`write.md` or `resume.md`) it governs - so deleting a step from the doc fails the test; (C) that the routing table, slash command, and this README agree with the skill; and (D) that `scripts/handoff_state.py` reports correct state against temporary repos (non-git dirs, legacy files, drift, rewritten history) without writing anything. Prints `ALL PASS (<n> checks)` on success; `-v` shows each check.
 
 ## Design notes
 
@@ -52,7 +52,8 @@ It checks three things: (A) the git **mechanics** the skill relies on (date-firs
 - **One new file per write, never overwritten** (`<YYYY-MM-DD-HHMMSS>-<short-session-id>-HANDOFF.md`) so concurrent agents in one directory can't clobber each other; date-first, so alphabetical sort is chronological. Past 3 files the skill suggests removing the oldest; it never deletes them itself.
 - **Session-aware** - each handoff records the session that wrote it; resume and show say when a handoff came from another session, so two agents in one repo don't act on each other's work unnoticed.
 - **Portable** - handoffs live at the repo root, and paths are relative to it, named by its remote rather than a local absolute path, so a handoff works on another machine or OS.
-- **Timestamps come from the clock, not the model** - the filename and `When:` are taken from `date` / `Get-Date` output, because the filename decides which handoff is newest.
+- **Timestamps come from the clock, not the model** - the filename and `When:` are taken from the state script's clock reading (or `date` / `Get-Date` output), because the filename decides which handoff is newest.
+- **Fast to load and run** - `SKILL.md` is a short router; Write and Resume read their own file (`write.md`, `resume.md`) on demand, and Show and List need no extra file. One read-only script call (`scripts/handoff_state.py`) gathers the git state, session id, timestamp, and parsed handoff headers that would otherwise take a tool call each, and the verify command runs once per write unless the new file can change its result.
 - **Rewritten history is detected** - if the recorded commit was rebased or squashed away, resume says so instead of reporting a misleading drift count.
 - **Secrets never land in the doc** - referenced by name, since handoffs get shared and committed.
 - **Ambiguity is asked, not guessed** - a dirty tree with an existing handoff prompts "resume or write new?" rather than silently picking.
